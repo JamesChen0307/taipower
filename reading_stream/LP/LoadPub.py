@@ -61,6 +61,7 @@ if __name__ == "__main__":
         src_flow = flowfile_data["src_flow"]
         source = flowfile_data["source"]
         meter_id = flowfile_data["meter_id"]
+        rec_no = flowfile_data["rec_no"]
         read_group = flowfile_data["read_group"]
         read_time = flowfile_data["read_time"]
         read_time_int = flowfile_data["read_time_int"]
@@ -106,15 +107,19 @@ if __name__ == "__main__":
                 )
             )
             dup_search["log_date_int"] = int(datetime.now().timestamp())
+
+            # 如果有當日統計時，但無該筆讀表時間資料時
             if redis_conn.exists(dupstat_key):
+                redis_conn.execute_command("JSON.ARRAPPEND", dupstat_key, "$.data", dup_search)
+            # 如果完全無當日統計時
+            else:
                 dup_data = {
                     "read_date_int": int(datetime.strptime(read_date, "%Y-%m-%d").timestamp()),
                     "data": dup_search,
                 }
                 func.set_redis(redis_conn, dupstat_key, dup_search)
-            else:
-                redis_conn.execute_command("JSON.ARRAPPEND", dupstat_key, "$.data", dup_search)
         elif src_flow == "LP_TmapProcess" or "LP_Imputation":
+            # lp_data或lpi_data之下沒有前日讀表資料
             if read_group == "LP":
                 last_result = redis_conn.execute_command(
                     "JSON.GET",
@@ -131,6 +136,7 @@ if __name__ == "__main__":
                         read_time_int=last_date_int
                     ),
                 )
+            # 表示異常，需記錄至Redis lp_miss_data:{key}
             if last_result is None:
                 lpmiss_key = "lp_miss_data:" + meter_id
                 if redis_conn.exists(lpmiss_key):
@@ -177,6 +183,8 @@ if __name__ == "__main__":
                         redis_conn.execute_command(
                             "JSON.ARRAPPEND", lpmiss_key, "$.data", miss_record
                         )
+                elif rec_no < 97:
+                    pass
                 else:
                     miss_record = {
                         "source": source,
