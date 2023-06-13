@@ -51,7 +51,15 @@ if __name__ == "__main__":
             sys.exit(exitcode)
         else:
             result_jobcnt = func.gp_search(
-                "select count(*) as jobcnt from ami_dg.bucket_ctrl_log where proc_type = 1;"
+                """
+                    SELECT
+                        count(*) as jobcnt
+                    FROM
+                        ami_dg.bucket_ctrl_log
+                    WHERE
+                        proc_type = 1
+                        AND read_group = 'LP';
+                """
             )
 
             jobcnt = result_jobcnt[0][0]
@@ -62,68 +70,69 @@ if __name__ == "__main__":
             else:
                 result_filebatchno = func.gp_search(
                     """
-                    select file_batch_no
-                    from ami_dg.bucket_ctrl_log
-                    where proc_type = 0 and enable_mk = 1
-                    order by crtd_time asc
-                    limit 1
+                        SELECT
+                            file_batch_no
+                        FROM
+                            ami_dg.bucket_ctrl_log
+                        WHERE
+                            proc_type = 0
+                            and enable_mk = 1
+                            and read_group = 'LP'
+                        ORDER BY
+                            crtd_time asc
+                        LIMIT
+                            1;
                     """
                 )
                 file_batch_no = result_filebatchno[0][0]
 
                 result_pathobj = func.gp_search(
                     """
-                        select
-                        file_batch_no,
-                        bucket_nm,
-                        read_group,
-                        to_char(date_trunc('month', dt), 'yyyy-mm-dd') as file_dir_ym,
-                        to_char(dt, 'yyyy-mm-dd') as file_dir_date,
-                        case
-                            when bucket_nm is not null then bucket_nm || '/' || lower(read_group) || to_char(dt, '/yyyy/mm/dd/')
-                            else path_nm
-                        end as file_path,
-                        0 as file_cnt,
-                        0 as proc_cnt,
-                        batch_mk,
-                        0 as proc_type,
-                        TO_CHAR(now(), 'YYYY-MM-DD HH24:MI:SS') as crtd_time,
-                        null as log_start_time,
-                        null as log_upd_time,
-                        null as log_end_time
-                        from
-                        (
-                            select
+                        SELECT
                             file_batch_no,
                             bucket_nm,
                             path_nm,
                             read_group,
-                            start_date,
-                            end_date,
-                            batch_mk,
-                            generate_series(start_date, end_date, interval '1 day') as dt
-                            from
-                            (
-                                select
+                            TO_CHAR(DATE_TRUNC('month', dt), 'YYYY-MM-DD') AS file_dir_ym,
+                            TO_CHAR(dt, 'YYYY-MM-DD') AS file_dir_date,
+                            CASE
+                                WHEN bucket_nm IS NOT NULL THEN bucket_nm || '/' || LOWER(read_group) || TO_CHAR(dt, '/YYYY/MM/DD/')
+                                ELSE path_nm
+                            END AS file_path,
+                            batch_mk
+                        FROM
+                        (
+                            SELECT
                                 file_batch_no,
                                 bucket_nm,
                                 path_nm,
                                 read_group,
                                 start_date,
                                 end_date,
-                                batch_mk
-                                from
-                                ami_dg.bucket_ctrl_log
-                                where
-                                proc_type = 0
-                                and enable_mk = 1
-                                order by
-                                crtd_time asc
-                                limit
-                                1
+                                batch_mk,
+                                GENERATE_SERIES(start_date, end_date, INTERVAL '1 day') AS dt
+                            FROM
+                            (
+                                SELECT
+                                    file_batch_no,
+                                    bucket_nm,
+                                    path_nm,
+                                    read_group,
+                                    start_date,
+                                    end_date,
+                                    batch_mk
+                                FROM
+                                    ami_dg.bucket_ctrl_log
+                                WHERE
+                                    proc_type = 0
+                                    AND enable_mk = 1
+                                    AND read_group = 'LP'
+                                ORDER BY
+                                    crtd_time ASC
+                                LIMIT
+                                    1
                             ) a
                         ) b;
-
                     """
                 )
                 # 更新該筆訂單bucket_ctrl_log.proc_type=1表示處理中
