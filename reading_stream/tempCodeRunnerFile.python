@@ -1,0 +1,14 @@
+# 原始的日期時間字串
+datetime_str = "20221118084235"
+
+# 提取日期時間的不同部分
+year = datetime_str[:4]
+month = datetime_str[4:6]
+day = datetime_str[6:8]
+hour = datetime_str[8:10]
+minute = datetime_str[10:12]
+second = datetime_str[12:14]
+
+# 格式化字串
+formatted_datetime = f"{year}-{month}-{day} {hour}:{minute}:{second}"
+print(formatted_datetime)

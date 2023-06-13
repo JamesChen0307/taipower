@@ -1,0 +1,23 @@
+aws configure
+
+aws s3 sync /opt/nifi/nifi-current/s3/meterreadings-stream s3://meterreadings-stream
+
+AWS Access Key ID : AKIASNK5LGEJPPRAUA4E
+AWS Secret Access Key : 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
+Default region : ap-northeast-1
+
+echo "AKIASNK5LGEJPPRAUA4E:Ba1Mm9yOYJgHCIKLjsBbDtMj0Aw8jRwo+0GWtM1V" > ${HOME}/.passwd-s3fs;
+chmod 600 ${HOME}/.passwd-s3fs
+
+s3fs meterreadings-stream /opt/nifi/nifi-current/s3/meterreadings-stream  -o passwd_file=$HOME/.passwd-s3fs,nonempty,rw,allow_other,mp_umask=002,uid=1000,gid=1000 -o url=http://s3.ap-northeast-1.amazonaws.com,endpoint=ap-northeast-1,use_path_request_style
+
+mount|grep s3fs
+
+
+
+omnistreamtest /home/ubuntu/s3 fuse.s3fs _netdev,allow_other 0 0
+
+
+echo "AKIAF4944F72BEBA94F4:JoktT3GDO+WXg+hrGUx7zJWDOiVDn6OsvPdZ4esa" > ${HOME}/.passwd-s3fs;
+chmod 600 ${HOME}/.passwd-s3fs
+s3fs meterreadings-stream /opt/nifi/nifi-current/s3/meterreadings-stream  -o passwd_file=$HOME/.passwd-s3fs,nonempty,rw,allow_other,mp_umask=002,uid=1000,gid=1000 -o url=http://172.31.48.247:9020,endpoint=ap-northeast-1,use_path_request_style
