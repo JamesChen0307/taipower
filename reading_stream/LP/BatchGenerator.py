@@ -182,6 +182,7 @@ if __name__ == "__main__":
             "LP_Batch",
             exc_info=True,
         )
+        '1'
         print(e)
         exitcode = 1
     finally:
