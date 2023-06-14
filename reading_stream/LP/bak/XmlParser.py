@@ -24,9 +24,8 @@ from datetime import datetime
 import gzinfo
 import pandas as pd
 import xmltodict
-from confluent_kafka import Producer
-
 from ami import constant, func, lp_config
+from confluent_kafka import Producer
 
 if __name__ == "__main__":
     exitcode = 0

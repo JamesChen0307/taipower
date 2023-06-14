@@ -12,13 +12,13 @@
 # Modified by：[V0.02][20230502][babylon][新增validation作業](sample)
 #
 
-import pytz
 import logging
 import os
 import sys
 from datetime import datetime
 from os.path import dirname
 
+import pytz
 import redis
 import xmltodict
 

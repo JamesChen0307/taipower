@@ -14,12 +14,12 @@
 
 import json
 import logging
-import pytz
 import os
 import sys
 from datetime import date, datetime, timedelta
 from os.path import dirname
 
+import pytz
 import redis
 
 CURRENT_DIR = dirname(__file__)

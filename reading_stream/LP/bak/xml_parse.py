@@ -8,10 +8,9 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
-from lxml import etree
-
 from ami import constant, func, lp_config
 from ami.constant import LOADPROFILE
+from lxml import etree
 
 """
 4/14 mn_xml_file parsing using xml.etree.ElementTree

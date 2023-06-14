@@ -12,9 +12,9 @@
 # Modified by：[V0.02][20230502][babylon][新增validation作業](sample)
 #
 
+import logging
 import re
 import sys
-import logging
 
 if __name__ == "__main__":
     exitcode = 0

@@ -407,6 +407,31 @@ def gp_insert(table_name, insert_dict):
     gp_conn.close()
 
 
+def gp_truncate(table_name):
+    gp_conn = psycopg2.connect(
+        host=conn.MDES_GP_HOST,
+        port=conn.MDES_GP_PORT,
+        database=conn.MDES_GP_DB,
+        user=conn.MDES_GP_USER,
+        password=conn.MDES_GP_PASS,
+    )
+
+    # 創建游標
+    cur = gp_conn.cursor()
+
+    # 執行 TRUNCATE 語句
+    query = f"TRUNCATE TABLE {table_name}"
+    cur.execute(query)
+
+    # 提交事務
+    gp_conn.commit()
+
+    # 關閉游標和連線
+    cur.close()
+    gp_conn.close()
+
+
+
 def list_s3object(bucket_name, prefix, read_group):
     client = boto3.client(
         "s3",
@@ -431,3 +456,8 @@ def list_s3object(bucket_name, prefix, read_group):
     # 列印過濾後的物件
     # for key in filtered_objects:
     #     print(key)
+
+def redis_get(r, key):
+    result = r.execute_command("JSON.GET", key.decode("utf-8"), ".")
+    return result
+

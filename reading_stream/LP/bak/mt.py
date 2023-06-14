@@ -1,5 +1,6 @@
 from mp.py import ThreadWorker
 
+
 @ThreadWorker(tasks=impute.iterrows(), thread=10, args=(1, 2, 3), kwargs={"a": 1, "b": 2})
 def func(task, *args, **kwargs):
     a, b, c, *_ = args

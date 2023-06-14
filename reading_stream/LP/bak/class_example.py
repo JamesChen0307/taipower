@@ -1,12 +1,14 @@
 import os
 import sys
-import redis
 from os.path import dirname
+
+import redis
 
 CURRENT_DIR = dirname(__file__)
 sys.path.append(os.path.abspath(CURRENT_DIR + "/../"))
-from ami import conn
 from dataclasses import dataclass, field
+
+from ami import conn
 
 
 @dataclass

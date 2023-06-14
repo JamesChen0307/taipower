@@ -1,8 +1,7 @@
+import time
 from functools import wraps
 from queue import Queue
 from threading import Thread
-import time
-
 # from base.roles import Operator, Saas
 from typing import List
 

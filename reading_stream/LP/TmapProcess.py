@@ -9,19 +9,20 @@
 #
 # Modified by：[V0.01][20230531][JamesChen][]
 
+import json
 import logging
 import os
 import sys
-import json
-import redis
-import pandas as pd
-from os.path import dirname
-from typing import Dict, Any
 from datetime import datetime, timedelta
+from os.path import dirname
+from typing import Any, Dict
+
+import pandas as pd
+import redis
 
 CURRENT_DIR = dirname(__file__)
 sys.path.append(os.path.abspath(CURRENT_DIR + "/../"))
-from ami import func, conn
+from ami import conn, func
 
 if __name__ == "__main__":
     exitcode = 0
@@ -224,7 +225,11 @@ if __name__ == "__main__":
         ].values[0]
 
         if prev_read_time == 0:
+            flowfile_data["hist_mk"] = 1
             func.publish_kafka(flowfile_data, "mdes.stream.lpi-hist", meter_id)
+        # 該筆串流值目前無缺值
+        elif (lp_data_df["next_read_time"] - lp_data_df["prev_read_time"]) == 172800:
+            pass
         else:
             imp_start_time = datetime.now()
 

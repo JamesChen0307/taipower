@@ -213,6 +213,7 @@ if __name__ == "__main__":
             topic = "mdes.stream.lpi-preprocessed"
         elif src_flow == "LP_Imputation":
             topic = "mdes.stream.lp-preprocessed"
+            flowfile_data["src_flow"] = "LP_Imputation_load"
 
         func.publish_kafka(flowfile_data, topic, func.hash_func(meter_id))
 
