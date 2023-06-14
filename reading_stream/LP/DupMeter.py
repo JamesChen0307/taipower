@@ -60,12 +60,12 @@ if __name__ == "__main__":
         #                               Flowfile Content                               #
         # ---------------------------------------------------------------------------- #
 
-
+        system_time_int = int(datetime.now().timestamp())
         # 先取得查詢筆數
         limit = redis_conn.execute_command(
             "FT.AGGREGATE",
-            "filelog_idx",
-            "@log_date_int:[-inf {0}] -@proc_type:[6 6]".format(int(datetime.now().timestamp())),
+            "lp_dup_meter_idx",
+            "@log_date_int:[-inf {0}] -@proc_type:[6 6]".format(system_time_int),
             "GROUPBY",
             "0",
             "REDUCE",
@@ -79,8 +79,8 @@ if __name__ == "__main__":
         # 依據ttl_cnt取得清單資訊
         search_result = redis_conn.execute_command(
             "FT.SEARCH",
-            "filelog_idx",
-            "@log_date_int:[-inf 2686200000] -@proc_type:[6 6]",
+            "lp_dup_meter_idx",
+            "@log_date_int:[-inf {0}] -@proc_type:[6 6]".format(system_time_int),
             "NOCONTENT",
             "LIMIT",
             "0",
@@ -90,82 +90,83 @@ if __name__ == "__main__":
         search_result = search_result[1:]
 
         # 以JSON.GET方式取得，採多執行緒
-        mp_results = [mppool.apply_async(func.redis_get, (key,)) for key in search_result]
+        mp_results = [mppool.apply_async(func.get_redis, (key,)) for key in search_result]
         mppool.close()
         mppool.join()
 
         mp_data = [res.get() for res in mp_results]
         decoded_data = [json.loads(d.decode("utf-8")) for d in mp_data]
 
-        # 將各檔案資訊載入至pandas dataframe統整處理
-        df = pd.DataFrame(decoded_data)
+        for data in decoded_data:
+            source = data["source"]
+            meter_type = data["meter_type"]
+            meter_id = data["meter_id"]
+            read_time = data["read_time"]
+            read_time_bias = data["read_time_bias"]
+            rec_no = data["rec_no"]
+            del_kwh = data["del_kwh"]
+            interval = data["interval"]
+            note = data["note"]
 
-        df["proc_days"] = (
-            datetime.now().timestamp()
-            - pd.to_datetime(df["log_start_time"]).astype("int64") / 10**9
-        ) // (24 * 60 * 60)
-        df["proc_days"] = df["proc_days"].astype(int)
-
-        df = df[
-            [
-                "source",
-                "read_group",
-                "file_dir_ym",
-                "file_dir_date",
-                "proc_days",
-                "proc_type",
-                "batch_mk",
-                "raw_file",
-                "total_cnt",
-                "warn_cnt",
-                "main_succ_cnt",
-                "dedup_cnt",
-                "err_cnt",
-                "dup_cnt",
-                "hist_cnt",
-                "wait_cnt",
-                "fnsh_cnt",
-            ]
-        ]
-
-        # 依據 source、read_group、file_dir_ym、file_dir_date、proc_days、proc_type、batch_mk彙加各項筆數統計數
-        stats_result = (
-            df.groupby(
-                [
-                    "source",
-                    "read_group",
-                    "file_dir_ym",
-                    "file_dir_date",
-                    "proc_days",
-                    "proc_type",
-                    "batch_mk",
-                ]
+            log_upd_time = data["log_upd_time"]
+            dupmeter_search = func.gp_search(
+                """
+                    SELECT
+                        source,
+                        meter_type,
+                        meter_id,
+                        read_time,
+                        read_time_bias,
+                        rec_no,
+                        del_kwh,
+                        interval,
+                        note,
+                        COUNT(*) as dup_meter_count
+                    FROM
+                        ami_dg.lp_dup_meter_log
+                    WHERE
+                        source = {0}
+                        AND meter_type = {1}
+                        AND meter_id = {2}
+                        AND read_time = {3}
+                        AND read_time_bias = {4}
+                        AND rec_no = {5}
+                        AND del_kwh = {6}
+                        AND interval = {7}
+                        AND note = {8}
+                    GROUP BY
+                        source,
+                        meter_type,
+                        meter_id,
+                        read_time,
+                        read_time_bias,
+                        rec_no,
+                        del_kwh,
+                        interval,
+                        note
+                    HAVING COUNT(*) > 1;
+                """.format(
+                    meter_id, read_time
+                )
             )
-            .agg(
-                {
-                    "total_cnt": "sum",
-                    "warn_cnt": "sum",
-                    "main_succ_cnt": "sum",
-                    "dedup_cnt": "sum",
-                    "err_cnt": "sum",
-                    "dup_cnt": "sum",
-                    "hist_cnt": "sum",
-                    "wait_cnt": "sum",
-                    "fnsh_cnt": "sum",
-                    "raw_file": "count",
+            #  ami_dg.data_dup_stat有對應的暫存物件統計資訊，則以update方式將資料更新至ami_dg.data_dup_stat
+            if len(dupmeter_search) < 1:
+                insert_dict = {
+                    "source": source,
+                    "meter_type": meter_type,
+                    "meter_id": meter_id,
+                    "read_time": read_time,
+                    "read_time_bias": read_time_bias,
+                    "data_no": data["data_no"],
+                    "rec_no": rec_no,
+                    "del_kwh": del_kwh,
+                    "interval": interval,
+                    "note": note,
+                    "log_date_time": data["log_date_time"],
                 }
-            )
-            .rename(columns={"raw_file": "file_cnt"})
-            .reset_index()
-        )
-
-        # truncate既有ami_dg.data_file_stat
-        func.gp_truncate("ami_dg.data_file_stat")
-        gp_stats = stats_result.to_dict(orient="records")
-        gp_stats["log_date_time"] = datetime.now().strftime(DATE_FORMAT)
-
-        # 將統計資料新增至ami_dg.data_file_stat
-        func.gp_insert("ami_dg.data_file_stat", gp_stats)
+                func.gp_insert("ami_dg.lp_dup_meter_log", insert_dict)
+        # 更新至主資料庫完成之後需刪除對應的Redis物件
+        redis_conn.delete(*search_result)
 
     except Exception as e:
         logging.error(

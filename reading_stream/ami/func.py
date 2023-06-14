@@ -457,7 +457,7 @@ def list_s3object(bucket_name, prefix, read_group):
     # for key in filtered_objects:
     #     print(key)
 
-def redis_get(r, key):
+def get_redis(r, key):
     result = r.execute_command("JSON.GET", key.decode("utf-8"), ".")
     return result
 
