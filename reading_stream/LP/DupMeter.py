@@ -56,10 +56,6 @@ if __name__ == "__main__":
     mppool = mp.Pool(processes=cpus)
 
     try:
-        # ---------------------------------------------------------------------------- #
-        #                               Flowfile Content                               #
-        # ---------------------------------------------------------------------------- #
-
         system_time_int = int(datetime.now().timestamp())
         # 先取得查詢筆數
         limit = redis_conn.execute_command(
@@ -120,8 +116,7 @@ if __name__ == "__main__":
                         rec_no,
                         del_kwh,
                         interval,
-                        note,
-                        COUNT(*) as dup_meter_count
+                        note
                     FROM
                         ami_dg.lp_dup_meter_log
                     WHERE
@@ -134,19 +129,16 @@ if __name__ == "__main__":
                         AND del_kwh = {6}
                         AND interval = {7}
                         AND note = {8}
-                    GROUP BY
-                        source,
-                        meter_type,
-                        meter_id,
-                        read_time,
-                        read_time_bias,
-                        rec_no,
-                        del_kwh,
-                        interval,
-                        note
-                    HAVING COUNT(*) > 1;
                 """.format(
-                    meter_id, read_time
+                    source,
+                    meter_type,
+                    meter_id,
+                    read_time,
+                    read_time_bias,
+                    rec_no,
+                    del_kwh,
+                    interval,
+                    note,
                 )
             )
             #  ami_dg.data_dup_stat有對應的暫存物件統計資訊，則以update方式將資料更新至ami_dg.data_dup_stat

@@ -436,6 +436,7 @@ if __name__ == "__main__":
                     hist_mk = 0
                     flowfile_data["hist_dur_ts"] = 0
 
+                proc_type ="S0001"
                 lpi_result = redis_conn.execute_command(
                     "JSON.GET",
                     lpidata_key,
@@ -506,6 +507,8 @@ if __name__ == "__main__":
                 if hist_mk != 1:
                     hist_mk = 0
                     flowfile_data["hist_dur_ts"] = 0
+
+                proc_type = "S0001"
 
                 lp_result = redis_conn.execute_command(
                     "JSON.GET",

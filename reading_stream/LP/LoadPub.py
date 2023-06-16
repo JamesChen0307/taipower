@@ -205,6 +205,7 @@ if __name__ == "__main__":
                     redis_conn.execute_command("JSON.SET", lpmiss_key, ".", miss_record)
 
         # 依據串流值src_flow、read_group判斷轉拋的Kafka Topic
+        flowfile_data["hist_mk"] = 1
         if src_flow == "LP_Validate" and read_group == "LP":
             topic = "mdes.stream.lp-raw-redo"
         elif src_flow == "LP_Validate" and read_group == "LPI":

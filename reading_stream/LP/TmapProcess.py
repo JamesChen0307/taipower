@@ -253,7 +253,7 @@ if __name__ == "__main__":
             impute["interval"] = impute["interval"].fillna(value=4)
             impute["note"] = impute["note"].fillna(value=1)
             impute["version"] = impute["version"].fillna(value=1)
-            impute["proc_type"] = impute["proc_type"].fillna(value=1001)
+            impute["proc_type"] = impute["proc_type"].fillna(value="S1001")
 
             # 取前一筆實際值
             impute["source"] = impute["source"].fillna(method="ffill")

@@ -461,3 +461,6 @@ def get_redis(r, key):
     result = r.execute_command("JSON.GET", key.decode("utf-8"), ".")
     return result
 
+def get_redis_data(r, key):
+    result = r.execute_command("JSON.GET", key.decode("utf-8"), ".data")
+    return result

@@ -53,9 +53,9 @@ if __name__ == "__main__":
     file_type = sys.argv[1]
     file_path = sys.argv[2]
     file_size = sys.argv[3]
-    rec_time = sys.argv[4]
-    raw_file = sys.argv[5]
-    raw_gzfile = sys.argv[6]
+    rec_time = sys.argv[4] + " " + sys.argv[5]
+    raw_file = sys.argv[6]
+    raw_gzfile = sys.argv[7]
 
     flowfile_attr = {
         "file_type": file_type,
