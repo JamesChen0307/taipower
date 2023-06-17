@@ -79,6 +79,7 @@ if __name__ == "__main__":
         flowfile_json = sys.stdin.buffer.read().decode("utf-8")
         flowfile_data = json.loads(flowfile_json)
 
+        # 自Flowfile取得下述資料
         read_time = flowfile_data["read_time"]
         read_time_int = int(datetime.strptime(flowfile_data["read_time"], DATE_FORMAT).timestamp())
         read_date = datetime.strptime(flowfile_data["read_time"], DATE_FORMAT).strftime("%Y-%m-%d")
@@ -90,12 +91,14 @@ if __name__ == "__main__":
         note = flowfile_data["note"]
         source = flowfile_data["source"]
         read_group = flowfile_data["read_group"]
-        hist_mk = flowfile_data.get("hsit_mk", 0)
-        hist_dur_ts = flowfile_data["hist_dur_ts"]
-        file_batch_no = flowfile_data["file_batch_no"]
-        batch_mk = flowfile_data["batch_mk"]
+        hist_mk = flowfile_data.get("hist_mk", 0)
+        # file_batch_no = flowfile_data["file_batch_no"]
+        file_batch_no = 1
+        # batch_mk = flowfile_data["batch_mk"]
+        batch_mk = 1
         raw_file = flowfile_data["raw_file"]
         file_seqno = flowfile_data["file_seqno"]
+
         rt_count = flowfile_data["rt_count"]
         del_kwh = flowfile_data["del_kwh"]
         msg_time = flowfile_data.get("msg_time", None)
@@ -114,19 +117,24 @@ if __name__ == "__main__":
         varFileKey = raw_file.rsplit(".", 1)[0]  # 去除副檔名
         varSrchKey = varFileKey.replace("-", "\\-") + "*"
         filelog_key = "filelog:" + varFileKey + "_" + str(file_seqno)
+        print(filelog_key)
 
         # 從 Redis JSON 中獲取 proc_type 的值
-        proc_type = redis_conn.execute_command("JSON.GET", "filelog_key", ".proc_type")
+        proc_type = redis_conn.execute_command("JSON.GET", filelog_key, ".proc_type").decode(
+            "utf-8"
+        )
 
         # 檢查 proc_type 是否小於 4
         if proc_type and int(proc_type) < 4:
             # 更新 Redis JSON 中的 proc_type 為 4
-            redis_conn.execute_command("JSON.SET", "filelog_key", ".proc_type", "4")
+            redis_conn.execute_command("JSON.SET", filelog_key, ".proc_type", "4")
 
         if file_batch_no and batch_mk == 2:
             # 跳過下述檢查
             pass
-        elif hist_mk != 1 and flowfile_data["read_time"] <= datetime.now() - timedelta(days=7):
+        elif hist_mk != 1 and datetime.strptime(
+            read_time, DATE_FORMAT
+        ) <= datetime.now() - timedelta(days=7):
             hist_start_time = datetime.now()
             hist_mk = 1
             flowfile_data["src_flow"] = "LP_Validate"
@@ -136,20 +144,25 @@ if __name__ == "__main__":
             else:
                 func.publish_kafka(flowfile_data, lpi_hist, func.hash_func(meter_id))
             # 設定 hist_cnt+1
-            hist_cnt = redis_conn.execute_command("JSON.GET", "filelog_key", ".hist_cnt") + 1
+            hist_cnt = (
+                int(
+                    redis_conn.execute_command("JSON.GET", filelog_key, ".hist_cnt").decode("utf-8")
+                )
+                + 1
+            )
             # 更新 filelog.hist_cnt+1
-            redis_conn.execute_command("JSON.SET", "filelog_key", ".hist_cnt", hist_cnt)
+            redis_conn.execute_command("JSON.SET", filelog_key, ".hist_cnt", hist_cnt)
             # 結束本處理程序
         else:
             # 其他情況的處理邏輯
             pass
 
         # 從 Redis JSON 中獲取 hist_mk 的值
-        hist_mk = redis_conn.execute_command("JSON.GET", "filelog_key", ".hist_mk")
-        if hist_mk and int(hist_mk) == 1:
+        # hist_mk = redis_conn.execute_command("JSON.GET", filelog_key, ".hist_mk")
+        if hist_mk == 1:
             # 更新對應filelog.hist_cnt-1
-            hist_mk -= 1
-            redis_conn.execute_command("JSON.SET", "filelog_key", ".hist_mk", hist_mk)
+            hist_cnt -= 1
+            redis_conn.execute_command("JSON.SET", filelog_key, ".hist_cnt", hist_cnt)
 
         # ---------------------------------------------------------------------------- #
         #                                     去重檢查                                   #
@@ -158,48 +171,56 @@ if __name__ == "__main__":
         dedup_result = redis_conn.execute_command(
             "JSON.GET",
             "lp_data:" + meter_id + "_" + read_date,
-            '$.data[?(@.read_time_int=={0}&&@.meter_id=="{1}"&&@.rec_no=={2}&&@.interval=={3}&&@.note=={4})]'.format(
+            '$.data[?(@.read_time_int=={0} && @.meter_id=="{1}" && @.rec_no=={2} && @.interval=={3} && @.note=={4})]'.format(
                 read_time_int, meter_id, rec_no, interval, note
             ),
         )
 
-        dupstat_key = "dup_stat:" + read_date + "_" + meter_id
+        dedup_key = "dup_stat:" + read_date + "_" + meter_id
+        print(dedup_key)
+        print(dedup_result)
         if dedup_result is not None:  # 有重複資料
-            if redis_conn.exists(dupstat_key):
+            if redis_conn.exists(dedup_key):
+                print("$.data[?(@.read_time_int=={0}]".format(read_time_int))
                 log_dup = redis_conn.execute_command(
-                    "JSON.GET", dupstat_key, "$.data[?(@.read_time_int=={0}]".format(read_time_int)
+                    "JSON.GET", dedup_key, "$.data[?(@.read_time_int=={0})]".format(read_time_int)
                 )
-                if log_dup is not None:  # 已經有資料在dup_log裡 將dup_cnt+1
-                    redis_conn.execute_command(
-                        "JSON.NUMINCRBY",
-                        dupstat_key,
-                        "$.data[?(@.read_time_int=={0})].dup_cnt 1".format(read_time_int),
-                    )
-                    redis_conn.execute_command(
-                        "JSON.SET",
-                        dupstat_key,
-                        "$.data[?(@.read_time_int=={0})].dup_upd_time".format(read_time_int),
-                        json.dumps(datetime.now().strftime(DATE_FORMAT)),
-                    )
 
-                else:
+                if len(log_dup) == 2: # len(b'[]') = 2
                     new_dup_data = {
                         "source": source,
                         "read_group": read_group,
                         "meter_type": meter_type,
                         "meter_id": meter_id,
-                        "read_time": read_date,
+                        "read_time": read_time,
                         "read_time_int": read_time_int,
                         "read_time_bias": func.calculate_read_time_bias(read_time),
                         "dup_cnt": 1,
-                        "log_start_time": datetime.now(),
+                        "log_start_time": datetime.now().strftime(DATE_FORMAT),
                         "log_upd_time": "",
                         "log_end_time": "",
                     }
                     new_dup_json = json.dumps(new_dup_data)
                     redis_conn.execute_command(
-                        "JSON.ARRAPPEND", dupstat_key, "$.data", new_dup_json
+                        "JSON.ARRAPPEND", dedup_key, "$.data", new_dup_json
                     )
+                else: # 已經有資料在dup_log裡 將dup_cnt+1
+                    print("$.data[?(@.read_time_int=={0})].dup_cnt".format(read_time_int))
+                    redis_conn.execute_command(
+                        "JSON.NUMINCRBY",
+                        dedup_key,
+                        "$.data[?(@.read_time_int=={0})].dup_cnt".format(read_time_int),
+                        1,
+                    )
+                    print("num")
+                    print("$.data[?(@.read_time_int=={0})].log_upd_time".format(read_time_int))
+                    redis_conn.execute_command(
+                        "JSON.SET",
+                        dedup_key,
+                        "$.data[?(@.read_time_int=={0})].log_upd_time".format(read_time_int),
+                        json.dumps(datetime.now().strftime(DATE_FORMAT)),
+                    )
+                    print("set")
 
             else:
                 dup_stat_data = {
@@ -210,21 +231,25 @@ if __name__ == "__main__":
                             "read_group": read_group,
                             "meter_type": meter_type,
                             "meter_id": meter_id,
-                            "read_time": read_date,
+                            "read_time": read_time,
                             "read_time_int": read_time_int,
                             "read_time_bias": func.calculate_read_time_bias(read_time),
                             "dup_cnt": 1,
-                            "log_start_time": datetime.now(),
+                            "log_start_time": datetime.now().strftime(DATE_FORMAT),
                             "log_upd_time": "",
                             "log_end_time": "",
                         }
                     ],
                 }
                 dup_stat_json = json.dumps(dup_stat_data)
-                redis_conn.execute_command("JSON.SET", dupstat_key, ".", dup_stat_json)
-                redis_conn.execute_command("EXPIRE", dupstat_key, conn.MDES_REDIS_TTL)
+                print(dup_stat_json)
+                redis_conn.execute_command("JSON.SET", dedup_key, ".", dup_stat_json)
+                redis_conn.execute_command("EXPIRE", dedup_key, conn.MDES_REDIS_TTL)
+                print("set success")
             dedup_dur_ts = str(datetime.now() - dedup_start_time)
+            print(dedup_dur_ts)
             redis_conn.execute_command("JSON.NUMINCRBY", filelog_key, ".dedup_cnt", 1)
+            print("exit")
             exitcode = 1
             sys.exit(exitcode)
         else:
@@ -232,6 +257,7 @@ if __name__ == "__main__":
             #                                    資料檢核作業                                #
             # ---------------------------------------------------------------------------- #
             error_start_time = datetime.now()
+            print(error_start_time)
             # ----------------------------- 讀表時間(read_time)無值 ---------------------------- #
             if read_time is None:
                 func.publish_errorlog(
@@ -244,6 +270,7 @@ if __name__ == "__main__":
                     "E20001",
                 )
                 redis_conn.execute_command("JSON.NUMINCRBY", filelog_key, ".err_cnt", 1)
+                print(1)
                 exitcode = 1
                 sys.exit(exitcode)
             # -------------------------- 讀表時間(read_time)不符合區間規範 -------------------------- #
@@ -258,6 +285,7 @@ if __name__ == "__main__":
                     "E20002",
                 )
                 redis_conn.execute_command("JSON.NUMINCRBY", filelog_key, ".err_cnt", 1)
+                print(2)
                 exitcode = 1
                 sys.exit(exitcode)
             # ------------------------ 讀表時間(read_time)為未來日期(大於隔日) ------------------------ #
@@ -272,10 +300,11 @@ if __name__ == "__main__":
                     "E20003",
                 )
                 redis_conn.execute_command("JSON.NUMINCRBY", filelog_key, ".err_cnt", 1)
+                print(3)
                 exitcode = 1
                 sys.exit(exitcode)
             # ------------------------------- LP 讀值項目總計不合規範 ------------------------------ #
-            if rt_count != 2 or rt_count != 6:
+            if rt_count not in [2, 6]:
                 func.publish_errorlog(
                     flowfile_attr,
                     file_seqno,
@@ -286,6 +315,7 @@ if __name__ == "__main__":
                     "E20004",
                 )
                 redis_conn.execute_command("JSON.NUMINCRBY", filelog_key, ".err_cnt", 1)
+                print(4)
                 exitcode = 1
                 sys.exit(exitcode)
             # ---------------------------- 區間售電仟瓦小時(del_kwh)無值 --------------------------- #
@@ -300,6 +330,7 @@ if __name__ == "__main__":
                     "E20005",
                 )
                 redis_conn.execute_command("JSON.NUMINCRBY", filelog_key, ".err_cnt", 1)
+                print(5)
                 exitcode = 1
                 sys.exit(exitcode)
             # ---------------------------------- 電表表號無值 ---------------------------------- #
@@ -314,6 +345,7 @@ if __name__ == "__main__":
                     "E20006",
                 )
                 redis_conn.execute_command("JSON.NUMINCRBY", filelog_key, ".err_cnt", 1)
+                print(6)
                 exitcode = 1
                 sys.exit(exitcode)
             # --------------------------------- 早於AMI建置時間 -------------------------------- #
@@ -330,6 +362,7 @@ if __name__ == "__main__":
                     "E20007",
                 )
                 redis_conn.execute_command("JSON.NUMINCRBY", filelog_key, ".err_cnt", 1)
+                print(7)
                 exitcode = 1
                 sys.exit(exitcode)
             # -------------------------- TMAP 讀表 comment值非 1 ~ 4 ------------------------- #
@@ -349,14 +382,17 @@ if __name__ == "__main__":
                     "E20012",
                 )
                 redis_conn.execute_command("JSON.NUMINCRBY", filelog_key, ".err_cnt", 1)
+                print(8)
                 exitcode = 1
                 sys.exit(exitcode)
             error_dur_ts = str(datetime.now() - error_start_time)
+            print(error_dur_ts)
 
             # ---------------------------------------------------------------------------- #
             #                                   有無異常表號重複                              #
             # ---------------------------------------------------------------------------- #
             dup_start_time = datetime.now()
+            print(dup_start_time)
 
             dup_result = redis_conn.execute_command(
                 "JSON.GET",
@@ -365,9 +401,9 @@ if __name__ == "__main__":
                     read_time_int, meter_id, rec_no, del_kwh
                 ),
             )
-
+            print(dup_result)
             lpdupmeter_key = "lp_dup_meter:" + meter_id + "_" + read_date
-            if len(json.loads(dup_result.decode())) > 1:
+            if dup_result and len(json.loads(dup_result.decode("utf-8"))) > 1:
                 log_data = {
                     "source": source,
                     "meter_type": meter_type,
@@ -429,6 +465,7 @@ if __name__ == "__main__":
             ver_start_time = datetime.now()
 
             lpdata_key = "lp_data:" + meter_id + "_" + read_date
+            print(lpdata_key)
             lpidata_key = "lpi_data:" + meter_id + "_" + read_date
 
             if source == "HES-TMAP20210525":
@@ -436,7 +473,7 @@ if __name__ == "__main__":
                     hist_mk = 0
                     flowfile_data["hist_dur_ts"] = 0
 
-                proc_type ="S0001"
+                proc_type = "S0001"
                 lpi_result = redis_conn.execute_command(
                     "JSON.GET",
                     lpidata_key,
@@ -518,7 +555,10 @@ if __name__ == "__main__":
                     ),
                 )
 
-                if len(json.loads(lp_result.decode())) > 1:
+                print(lp_result)
+                print(len(json.loads(lp_result.decode())))
+
+                if lp_result and len(json.loads(lp_result.decode())) > 1:
                     lp_msg_time = json.loads(lp_result.decode())["msg_time"]
                     lp_rec_time = json.loads(lp_result.decode())["rec_time"]
                     if msg_time > lp_msg_time or rec_time > lp_rec_time:
@@ -590,7 +630,8 @@ if __name__ == "__main__":
                     func.hash_func(meter_id),
                 )
             filelog_result = redis_conn.execute_command("JSON.GET", filelog_key)
-            filelog = json.loads(filelog_result.decode())
+            filelog = json.loads(filelog_result.decode("utf-8"))
+            print(filelog)
             if (
                 filelog["wait_cnt"] == 0
                 and filelog["hist_cnt"] == 0
@@ -607,7 +648,10 @@ if __name__ == "__main__":
                 )
                 redis_conn.delete(filelog_key)
             else:
-                update_filelog = {"proc_type": 5, "log_upd_time": datetime.now()}
+                update_filelog = {
+                    "proc_type": 5,
+                    "log_upd_time": datetime.now().strftime(DATE_FORMAT),
+                }
                 redis_conn.execute_command("JSON.SET", filelog_key, ".", json.dumps(update_filelog))
 
     except Exception as e:

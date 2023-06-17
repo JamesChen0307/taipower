@@ -498,6 +498,8 @@ def get_payload(flowfile_attr, file_seqno, file_dir_date, header_dict, meter_rea
     meter_id = None
     interval = 0
     note = 0
+    meter_id = ""
+    fan_id = ""
 
     # Counter
     columns = {}
@@ -622,7 +624,7 @@ def get_payload(flowfile_attr, file_seqno, file_dir_date, header_dict, meter_rea
         lp_raw_temp = {
             "source": header_dict["source"],
             "meter_id": meter_id,
-            "fan_id": "",
+            "fan_id": fan_id,
             "rec_no": rec_no,
             "read_time": read_time,
             "interval": interval,
@@ -657,9 +659,12 @@ def get_payload(flowfile_attr, file_seqno, file_dir_date, header_dict, meter_rea
             "rev": header_dict["rev"],
             "qos": header_dict["qos"],
             "start_strm_time": start_strm_time,
-            "warn_dur_ts": "2023-05-25 11:13:00",
-            "main_dur_ts": "2023-05-25 11:13:00",
+            "warn_dur_ts": "",
+            "main_dur_ts": "",
             "rt_count": rt_count,
+            "auth_key": "",
+            "main_update_time": "",
+            "dw_update_time": ""
         }
         lp_raw_temp = check_data(
             lp_raw_temp, flowfile_attr, file_seqno, header_dict["read_group"], rt_count, warn_cnt
@@ -668,7 +673,7 @@ def get_payload(flowfile_attr, file_seqno, file_dir_date, header_dict, meter_rea
         lpi_raw_temp = {
             "source": header_dict["source"],
             "meter_id": meter_id,
-            "fan_id": "",
+            "fan_id": fan_id,
             "tamp_cust_id": meter_id,  # not sure
             "comment": comment,
             "read_time": read_time,
@@ -707,6 +712,9 @@ def get_payload(flowfile_attr, file_seqno, file_dir_date, header_dict, meter_rea
             "warn_dur_ts": "",
             "main_dur_ts": "",
             "rt_count": rt_count,
+            "auth_key": "",
+            "main_update_time": "",
+            "dw_update_time": ""
         }
         lpi_raw_temp, warn_cnt = check_data(
             lpi_raw_temp, flowfile_attr, file_seqno, header_dict["read_group"], rt_count, warn_cnt

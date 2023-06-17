@@ -300,6 +300,8 @@ class FileLog(BaseModel):
     file_dir_date: Optional[str]
     file_seqno: Optional[int]
     msg_id: Optional[str]
+    corr_id: Optional[str]
+    msg_time: Optional[str]
     source: Optional[str]
     read_group: Optional[str]
     total_cnt: Optional[int]
