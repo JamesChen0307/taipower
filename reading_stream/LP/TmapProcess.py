@@ -57,6 +57,8 @@ if __name__ == "__main__":
         read_time = flowfile_data["read_time"]
         meter_id = flowfile_data["meter_id"]
         read_date = flowfile_data["read_date"]
+        hist_dur_ts = flowfile_data["hist_dur_ts"]
+        hist_mk = flowfile_data["hist_mk"]
 
         prev_read_time = int(
             (datetime.strptime(read_time, "%Y-%m-%d %H:%M:%S") - timedelta(hours=24)).timestamp()
@@ -291,8 +293,8 @@ if __name__ == "__main__":
             impute["dedup_dur_ts"] = impute["dedup_dur_ts"].fillna(value=0)
             impute["error_dur_ts"] = impute["error_dur_ts"].fillna(value=0)
             impute["dup_dur_ts"] = impute["dup_dur_ts"].fillna(value=0)
-            impute["hist_dur_ts"] = impute["hist_dur_ts"].fillna(value=0)
-            impute["hist_mk"] = impute["hist_mk"].fillna(value=0)
+            impute["hist_dur_ts"] = hist_dur_ts
+            impute["hist_mk"] = hist_mk
             impute["main_dur_ts"] = impute["main_dur_ts"].fillna(value=0)
             impute["out_dur_ts"] = impute["out_dur_ts"].fillna(value=0)
             impute["out_mk"] = impute["out_mk"].fillna(value=0)

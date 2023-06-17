@@ -185,7 +185,7 @@ if __name__ == "__main__":
             row = next(header_reader)
 
             # CSV欄位數或欄位項目不符規範
-            if row != constant.csv_header:
+            if row != constant.CSV_HEADER:
                 file_log = lp_config.FileLog(
                     log_date_int=int(datetime.now().timestamp()),
                     file_type=file_type,
@@ -227,15 +227,7 @@ if __name__ == "__main__":
                 start_strm_time = str(datetime.now())[0:19]
                 rt_count = _rt_count_fields(reading_data[1])
                 # --------------------------------- 通訊商代號不合規範 -------------------------------- #
-                if reading_data[1]["SOURCE"] not in [
-                    "HES-CHT20180705",
-                    "HES-CHT20190919",
-                    "HES-DAS20180705",
-                    "HES-FET20190919",
-                    "HES-UBIIK20180705",
-                    "HES-APTG20180628",
-                    "HES-TMAP20210525",
-                ]:
+                if reading_data[1]["SOURCE"] not in constant.SOURCE_WHITELIST:
                     func.publish_errorlog(
                         flowfile_attr,
                         file_seqno,

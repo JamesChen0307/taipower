@@ -16,6 +16,8 @@ import json
 from datetime import datetime, timedelta
 
 import boto3
+import sys
+import redis
 import psycopg2
 from confluent_kafka import Producer
 from pydantic import ValidationError
@@ -121,6 +123,8 @@ def set_redis(redis, key, data):
     redis.execute_command("JSON.SET", key, ".", json.dumps(dict(data)))
     redis.execute_command("EXPIRE", key, conn.MDES_REDIS_TTL)
 
+def set_redis_data(redis, key, data):
+    redis.execute_command("JSON.SET", key, ".data", json.dumps(dict(data)))
 
 def publish_errorlog(file_dict, file_seqno, source, read_group, meter_id, read_time, type_cd):
     error_log = lp_config.ErrorLog(
@@ -464,3 +468,366 @@ def get_redis(r, key):
 def get_redis_data(r, key):
     result = r.execute_command("JSON.GET", key.decode("utf-8"), ".data")
     return result
+
+
+
+def get_payload(flowfile_attr, file_seqno, file_dir_date, header_dict, meter_reading, meters):
+    # ---------------------------------------------------------------------------- #
+    #                               Redis Connection                               #
+    # ---------------------------------------------------------------------------- #
+    pool = redis.ConnectionPool(
+        host=conn.MDES_REDIS_HOST,
+        port=conn.MDES_REDIS_PORT,
+        password=conn.MDES_REDIS_PASS,
+        db=conn.MDES_REDIS_DB,
+    )
+    redis_conn = redis.Redis(connection_pool=pool)
+
+    # ---------------------------------------------------------------------------- #
+    #                                   Main Data                                  #
+    # ---------------------------------------------------------------------------- #
+    MAIN_ENABLE_MK = 0
+
+    # ---------------------------------------------------------------------------- #
+    #                               Get Payload Info                               #
+    # ---------------------------------------------------------------------------- #
+    # Paramter init
+    read_time = None
+    reading_type = None
+    rec_no = None
+    meter_id = None
+    interval = 0
+    note = 0
+
+    # Counter
+    columns = {}
+    rt_count = 0
+    warn_cnt = 0
+    wait_cnt = 0
+    err_cnt = 0
+    main_succ_cnt = 0
+
+    # ------------------------------ 1.Meter Readings ----------------------------- #
+    start_strm_time = str(datetime.now())[0:19]
+    match meter_reading["Meter"]["Names"]["NameType"]["name"]:
+        case "MeterUniqueID":
+            meter_id = meter_reading["Meter"]["Names"]["name"]
+        case "FanUniqueID":
+            fan_id = meter_reading["Meter"]["Names"]["name"]
+    if meter_id not in meters.keys():
+        meters[meter_id] = 1
+
+    # ------------------------------ 2.Interval Blocks ----------------------------- #
+    for interval_block in meter_reading["IntervalBlocks"]:
+        read_time = interval_block["IntervalReadings"]["timeStamp"]
+        if read_time != None:
+            read_time = read_time[0:19].replace("T", " ")
+        # ------------------------- 臨時程式ID號碼 (TOU_id) 處理台達程式 ------------------------- #
+        match interval_block["ReadingType"]["@ref"]:
+            case "0.0.0.0.0.2.167.0.0.0.0.0.0.0.0.0.0.0":
+                reading_type == "TOU_ID"
+                publish_warnlog(
+                    flowfile_attr,
+                    file_seqno,
+                    header_dict["source"],
+                    header_dict["read_group"],
+                    meter_id,
+                    read_time,
+                    "W23002",
+                    "reading_type",
+                    rt_count,
+                )
+                warn_cnt += 1
+            case None:
+                publish_warnlog(
+                    flowfile_attr,
+                    file_seqno,
+                    header_dict["source"],
+                    header_dict["read_group"],
+                    meter_id,
+                    read_time,
+                    "W24001",
+                    "reading_type",
+                    rt_count,
+                )
+                warn_cnt += 1
+            case _:
+                reading_type = constant.LOADPROFILE[interval_block["ReadingType"]["@ref"]][
+                    "name"
+                ]  # 讀值欄位
+                read_val = interval_block["IntervalReadings"]["value"]
+                columns[reading_type] = read_val
+                rt_count = len(columns)
+
+        # ---------------------------- 3.Reading Qualities --------------------------- #
+        for reading_quality in interval_block["IntervalReadings"]["ReadingQualities"]:
+            if header_dict["source"] != "HES-TMAP20210525":
+                match reading_quality["ReadingQualityType"]["@ref"]:
+                    case "5.4.260":
+                        rec_no = reading_quality[
+                            "comment"
+                        ]  # 依據Reading Quality判斷是否為rec_no或者讀表狀態
+                    case "1.5.257":
+                        publish_errorlog(
+                            flowfile_attr,
+                            file_seqno,
+                            header_dict["source"],
+                            header_dict["read_group"],
+                            meter_id,
+                            read_time,
+                            "E21001",
+                        )
+                        err_cnt += 1
+                        exitcode = 1
+                        sys.exit(exitcode)
+                    case _:
+                        ref_code = reading_quality["ReadingQualityType"]["@ref"]
+                        interval = constant.QUALITYCODE[ref_code]["interval"]
+                        note = constant.QUALITYCODE[ref_code]["note"]
+            else:
+                match reading_quality["ReadingQualityType"]["@ref"]:
+                    case "5.4.260":
+                        comment = reading_quality[
+                            "comment"
+                        ]  # 依據Reading Quality判斷是否為rec_no或者讀表狀態
+                    case "1.5.257":
+                        publish_errorlog(
+                            flowfile_attr,
+                            file_seqno,
+                            header_dict["source"],
+                            header_dict["read_group"],
+                            meter_id,
+                            read_time,
+                            "E21001",
+                        )
+                        err_cnt += 1
+                        exitcode = 1
+                        sys.exit(exitcode)
+                    case _:
+                        ref_code = reading_quality["ReadingQualityType"]["@ref"]
+                        interval = constant.QUALITYCODE[ref_code]["interval"]
+                        note = constant.QUALITYCODE[ref_code]["note"]
+
+            read_val = interval_block["IntervalReadings"]["value"]
+            if reading_type is not None:
+                columns[reading_type] = read_val
+
+            del_kwh = columns["DEL_KWH"] if "DEL_KWH" in columns else None
+            rec_kwh = columns["REC_KWH"] if "REC_KWH" in columns else None
+            del_kvarh_lag = columns["DEL_KVARH_LAG"] if "DEL_KVARH_LAG" in columns else None
+            del_kvarh_lead = columns["DEL_KVARH_LEAD"] if "DEL_KVARH_LEAD" in columns else None
+            rec_kvarh_lag = columns["REC_KVARH_LAG"] if "REC_KVARH_LAG" in columns else None
+            rec_kvarh_lead = columns["REC_KVARH_LEAD"] if "REC_KVARH_LEAD" in columns else None
+    if header_dict["source"] != "HES-TMAP20210525":
+        lp_raw_temp = {
+            "source": header_dict["source"],
+            "meter_id": meter_id,
+            "fan_id": "",
+            "rec_no": rec_no,
+            "read_time": read_time,
+            "interval": interval,
+            "note": note,
+            "del_kwh": del_kwh,
+            "rec_kwh": rec_kwh,
+            "del_kvarh_lag": del_kvarh_lag,
+            "del_kvarh_lead": del_kvarh_lead,
+            "rec_kvarh_lag": rec_kvarh_lag,
+            "rec_kvarh_lead": rec_kvarh_lead,
+            "sdp_id": "",
+            "ratio": "",
+            "pwr_co_id": "",
+            "cust_id": "",
+            "ct_ratio": "",
+            "pt_ratio": "",
+            "file_type": flowfile_attr["file_type"],
+            "raw_gzfile": flowfile_attr["raw_gzfile"],
+            "raw_file": flowfile_attr["raw_file"],
+            "rec_time": flowfile_attr["rec_time"],
+            "file_path": flowfile_attr["file_path"],
+            "file_size": flowfile_attr["file_size"],
+            "file_seqno": file_seqno,
+            "msg_id": header_dict["msg_id"],
+            "corr_id": header_dict["corr_id"],
+            "msg_time": header_dict["msg_time"],
+            "read_group": header_dict["read_group"],
+            "verb": header_dict["verb"],
+            "noun": header_dict["noun"],
+            "context": header_dict["context"],
+            "msg_idx": header_dict["msg_idx"],
+            "rev": header_dict["rev"],
+            "qos": header_dict["qos"],
+            "start_strm_time": start_strm_time,
+            "warn_dur_ts": "2023-05-25 11:13:00",
+            "main_dur_ts": "2023-05-25 11:13:00",
+            "rt_count": rt_count,
+        }
+        lp_raw_temp = check_data(
+            lp_raw_temp, flowfile_attr, file_seqno, header_dict["read_group"], rt_count, warn_cnt
+        )
+    else:
+        lpi_raw_temp = {
+            "source": header_dict["source"],
+            "meter_id": meter_id,
+            "fan_id": "",
+            "tamp_cust_id": meter_id,  # not sure
+            "comment": comment,
+            "read_time": read_time,
+            "interval": interval,
+            "note": note,
+            "del_kwh": del_kwh,
+            "rec_kwh": rec_kwh,
+            "del_kvarh_lag": del_kvarh_lag,
+            "del_kvarh_lead": del_kvarh_lead,
+            "rec_kvarh_lag": rec_kvarh_lag,
+            "rec_kvarh_lead": rec_kvarh_lead,
+            "sdp_id": "",
+            "ratio": "",
+            "pwr_co_id": "",
+            "cust_id": "",
+            "ct_ratio": "",
+            "pt_ratio": "",
+            "file_type": flowfile_attr["file_type"],
+            "raw_gzfile": flowfile_attr["raw_gzfile"],
+            "raw_file": flowfile_attr["raw_file"],
+            "rec_time": flowfile_attr["rec_time"],
+            "file_path": flowfile_attr["file_path"],
+            "file_size": flowfile_attr["file_size"],
+            "file_seqno": file_seqno,
+            "msg_id": header_dict["msg_id"],
+            "corr_id": header_dict["corr_id"],
+            "msg_time": header_dict["msg_time"],
+            "read_group": header_dict["read_group"],
+            "verb": header_dict["verb"],
+            "noun": header_dict["noun"],
+            "context": header_dict["context"],
+            "msg_idx": header_dict["msg_idx"],
+            "rev": header_dict["rev"],
+            "qos": header_dict["qos"],
+            "start_strm_time": start_strm_time,
+            "warn_dur_ts": "",
+            "main_dur_ts": "",
+            "rt_count": rt_count,
+        }
+        lpi_raw_temp, warn_cnt = check_data(
+            lpi_raw_temp, flowfile_attr, file_seqno, header_dict["read_group"], rt_count, warn_cnt
+        )
+
+    # ---------------------------------------------------------------------------- #
+    #                             lp_raw with main_data                            #
+    # ---------------------------------------------------------------------------- #
+    if MAIN_ENABLE_MK == 1:
+        main_start_time = datetime.now()
+        if read_time is not None:
+            read_time_ux = int(datetime.strptime(read_time, "%Y-%m-%d %H:%M:%S").timestamp())
+        main_srch = redis_conn.execute_command(
+            "ft.search",
+            "maindata_idx",
+            f"@meter:{{{meter_id}}}",
+            "RETURN",
+            "2",
+            "$.sdp_id",
+            f"$.data[?(@.begin<={read_time_ux}&&@.end>{read_time_ux})]",
+        )
+
+        if main_srch[0] == 1:  # 假設有主檔 會回傳一個list包含[1(主檔比數), maindata_idx, [$.sdp_id,$.date]]
+            read_time_int = int(datetime.strptime(read_time, "%Y-%m-%d %H:%M:%S").timestamp())
+            if header_dict["source"] != "HES-TMAP20210525":
+                combine_maindata(main_srch, lp_raw_temp, main_start_time)
+                main_succ_cnt += 1
+                publish_kafka(
+                    lp_raw_temp,
+                    "mdes.stream.lp-raw",
+                    hash_func(meter_id),
+                )
+            else:
+                combine_maindata(main_srch, lpi_raw_temp, main_start_time)
+                main_succ_cnt += 1
+                publish_kafka(
+                    lpi_raw_temp,
+                    "mdes.stream.lpi-raw",
+                    hash_func(meter_id),
+                )
+        else:
+            wait_cnt += 1
+            if main_srch[0] > 1:
+                publish_errorlog(
+                    flowfile_attr,
+                    file_seqno,
+                    header_dict["source"],
+                    header_dict["read_group"],
+                    meter_id,
+                    read_time,
+                    "E23003",
+                )
+                warn_cnt += 1
+            main_dur_ts = str(datetime.now() - main_start_time)
+            read_time_int = int(datetime.strptime(read_time, "%Y-%m-%d %H:%M:%S").timestamp())
+
+            if header_dict["source"] != "HES-TMAP20210525":
+                set_nomaindata(
+                    lp_raw_temp,
+                    main_dur_ts,
+                    read_time_int,
+                    meter_id,
+                    file_dir_date,
+                    redis_conn,
+                )
+            else:
+                set_nomaindata(
+                    lpi_raw_temp,
+                    main_dur_ts,
+                    read_time_int,
+                    meter_id,
+                    file_dir_date,
+                    redis_conn,
+                )
+    else:
+        if header_dict["source"] != "HES-TMAP20210525":
+            publish_kafka(
+                lp_raw_temp,
+                "mdes.stream.lp-raw",
+                hash_func(meter_id),
+            )
+        else:
+            publish_kafka(
+                lpi_raw_temp,
+                "mdes.stream.lpi-raw",
+                hash_func(meter_id),
+            )
+    return meters, warn_cnt, err_cnt, wait_cnt, main_succ_cnt
+
+
+def count_total(input_array):
+    meters_count = {}  # 用於統計不同meters 的數量
+    total_meter_cnt = 0
+
+    warn_cnt_total = 0
+    err_cnt_total = 0
+    wait_cnt_total = 0
+    main_succ_cnt_total = 0
+
+    for item in input_array:
+        meters, warn_cnt, err_cnt, wait_cnt, main_succ_cnt = item
+
+        # 統計不同meters 的數量
+        for meter, count in meters.items():
+            meters_count[meter] = meters_count.get(meter, 0) + count
+
+        warn_cnt_total += warn_cnt
+        err_cnt_total += err_cnt
+        wait_cnt_total += wait_cnt
+        main_succ_cnt_total += main_succ_cnt
+
+    print("Meters Count:")
+    for meter, count in meters_count.items():
+        total_meter_cnt += count
+        print(f"{meter}: {count}")
+
+    print("Total Counts:")
+    print(f"meter_cnt_total: {total_meter_cnt}")
+    print(f"warn_cnt_total: {warn_cnt_total}")
+    print(f"err_cnt_total: {err_cnt_total}")
+    print(f"wait_cnt_total: {wait_cnt_total}")
+    print(f"main_succ_cnt_total: {main_succ_cnt_total}")
+
+    return total_meter_cnt, warn_cnt_total, err_cnt_total, wait_cnt_total, main_succ_cnt_total

@@ -468,9 +468,7 @@ QUALITYCODE = {
 }
 
 
-
-
-csv_header = [
+CSV_HEADER = [
     "FAN_ID",
     "SOURCE",
     "CUST_ID",
@@ -485,4 +483,15 @@ csv_header = [
     "REC_KVARH_LEAD",
     "INTERVAL",
     "NOTE",
+]
+
+
+SOURCE_WHITELIST = [
+    "HES-CHT20180705",
+    "HES-CHT20190919",
+    "HES-DAS20180705",
+    "HES-FET20190919",
+    "HES-UBIIK20180705",
+    "HES-APTG20180628",
+    "HES-TMAP20210525",
 ]

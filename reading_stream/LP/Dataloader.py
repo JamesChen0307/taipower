@@ -183,23 +183,31 @@ if __name__ == "__main__":
                 (
         """
 
+        hist_start_time = datetime.now()
+        reflog_key = "lp_hist_reflog:" + meter_id + "_" + ref_batch_no
         # 自主資料庫查詢如下(需將所有訂單之資訊整併成單一request(union all)
         if read_group == "LP":
             union_search_lpr = select_query + union_queries_lpr + ");"
-            union_result_lpr = func.gp_search(union_search_lpr)
+            union_result_lpr = func.gp_search(union_search_lpr)[0]
+            hist_dur_ts = str(datetime.now() - hist_start_time)
 
             # 將上述回傳資料結果新增更新至Redis lp_data:{key}
             lpdata_key = "lp_data:" + meter_id + "_" + datetime.strptime(read_time, DATE_FORMAT)
             func.set_redis(redis_conn, lpdata_key, union_result_lpr)
             redis_conn.execute_command("EXPIRE", lpdata_key, 950400)
+            func.set_redis_data(redis_conn, lpdata_key, {"hist_dur_ts": hist_dur_ts})
+            func.set_redis_data(redis_conn, reflog_key, {"hist_dur_ts": hist_dur_ts})
         else:
             union_search_lpi = select_query + union_queries_lpi + ");"
             union_result_lpi = func.gp_search(union_search_lpi)
+            hist_dur_ts = str(datetime.now() - hist_start_time)
 
             # 將上述回傳資料結果新增更新至Redis lpi_data:{key}
             lpidata_key = "lpi_data:" + meter_id + "_" + datetime.strptime(read_time, DATE_FORMAT)
             func.set_redis(redis_conn, lpidata_key, union_result_lpi)
             redis_conn.execute_command("EXPIRE", lpidata_key, 950400)
+            func.set_redis_data(redis_conn, lpidata_key, {"hist_dur_ts": hist_dur_ts})
+            func.set_redis_data(redis_conn, reflog_key, {"hist_dur_ts": hist_dur_ts})
 
         for data in flowfile_data:
             ref_batch_no = data["ref_batch_no"]

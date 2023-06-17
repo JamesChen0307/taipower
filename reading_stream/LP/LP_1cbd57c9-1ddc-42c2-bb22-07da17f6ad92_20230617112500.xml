@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<EventMessage xmlns="http://iec.ch/TC57/2011/schema/message">
+  <Header>
+    <Verb>created</Verb>
+    <Noun>MeterReadings</Noun>
+    <Revision>1</Revision>
+    <Context>PRODUCTION</Context>
+    <Timestamp>2022-11-18T08:42:21.539+08:00</Timestamp>
+    <Source>HES-CHT20190919</Source>
+    <MessageID>1cbd57c9-1ddc-42c2-bb22-07da17f6ad92</MessageID>
+    <CorrelationID>1cbd57c9-1ddc-42c2-bb22-07da17f6ad92</CorrelationID>
+    <Property>
+      <Name>ReadingTypeGroup</Name>
+      <Value>LP</Value>
+    </Property>
+    <Property>
+      <Name>QOSLevel</Name>
+      <Value>LEVEL-2</Value>
+    </Property>
+    <Property>
+      <Name>MessageIndex</Name>
+      <Value>1/1</Value>
+    </Property>
+  </Header>
+  <Payload>
+    <MeterReadings xmlns="http://iec.ch/TC57/2011/MeterReadings#">
+      <MeterReading>
+        <IntervalBlocks>
+          <IntervalReadings>
+            <timeStamp>2022-11-18T06:45:00.000+08:00</timeStamp>
+            <value>6519.0955</value>
+            <ReadingQualities>
+              <source>HES</source>
+              <timeStamp>2022-11-18T06:45:00.000+08:00</timeStamp>
+              <ReadingQualityType ref="1.0.0"></ReadingQualityType>
+            </ReadingQualities>
+            <ReadingQualities>
+              <comment>4057</comment>
+              <source>HES</source>
+              <timeStamp>2022-11-18T06:45:00.000+08:00</timeStamp>
+              <ReadingQualityType ref="5.4.260"></ReadingQualityType>
+            </ReadingQualities>
+          </IntervalReadings>
+          <ReadingType ref="0.0.2.9.1.2.12.0.0.0.0.0.0.0.0.3.72.0"></ReadingType>
+        </IntervalBlocks>
+        <IntervalBlocks>
+          <IntervalReadings>
+            <timeStamp>2022-11-18T06:45:00.000+08:00</timeStamp>
+            <value>0.8358</value>
+            <ReadingQualities>
+              <source>HES</source>
+              <timeStamp>2022-11-18T06:45:00.000+08:00</timeStamp>
+              <ReadingQualityType ref="1.0.0"></ReadingQualityType>
+            </ReadingQualities>
+            <ReadingQualities>
+              <comment>4057</comment>
+              <source>HES</source>
+              <timeStamp>2022-11-18T06:45:00.000+08:00</timeStamp>
+              <ReadingQualityType ref="5.4.260"></ReadingQualityType>
+            </ReadingQualities>
+          </IntervalReadings>
+          <ReadingType ref="0.0.2.9.15.2.164.0.0.0.0.0.0.0.0.3.73.0"></ReadingType>
+        </IntervalBlocks>
+        <Meter>
+          <mRID>WT20069447</mRID>
+          <Names>
+            <name>WT20069447</name>
+            <NameType>
+              <name>MeterUniqueID</name>
+            </NameType>
+          </Names>
+        </Meter>
+      </MeterReading>
+    </MeterReadings>
+    <Format>Base64/Zip</Format>
+  </Payload>
+</EventMessage>
