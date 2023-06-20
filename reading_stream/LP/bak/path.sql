@@ -64,4 +64,13 @@ where
 order by
   crtd_time asc
 limit
-  1
+  1;
+
+select
+  ami_ods.mdes_meterreading_upd_job(
+    '${source}',
+    '${meter_id}',
+    '${read_time}',
+    $ { version },
+    '$ { source :equals('HES-TMAP20210525') :ifElse('lpi', 'lpr') }'
+  );

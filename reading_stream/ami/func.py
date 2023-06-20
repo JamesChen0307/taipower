@@ -17,11 +17,14 @@ from datetime import datetime, timedelta
 
 import boto3
 import sys
+import time
 import redis
 import psycopg2
 from confluent_kafka import Producer
 from pydantic import ValidationError
 from typing import Optional
+from kafka import KafkaProducer
+
 
 from ami import conn, constant, lp_config
 
@@ -98,6 +101,17 @@ def publish_kafka(input_data, topic, partition_id: Optional[int] = None):
     p = Producer({"bootstrap.servers": conn.MDES_KAFKA_URL})
     data = json.dumps(input_data)
     p.produce(topic, value=data.encode("utf-8"), partition=partition_id)
+
+
+def publish_kafka_v2(input_data, topic, partition_id: Optional[int] = None):
+    p = KafkaProducer(bootstrap_servers=conn.MDES_KAFKA_URL)
+    data = json.dumps(input_data)
+    message = data.encode("utf-8")
+    p.send(topic, value=message, partition=partition_id)
+
+
+def kafka_flush():
+    p = Producer({"bootstrap.servers": conn.MDES_KAFKA_URL})
     p.flush()
     p.poll(0)
 
@@ -123,8 +137,10 @@ def set_redis(redis, key, data):
     redis.execute_command("JSON.SET", key, ".", json.dumps(dict(data)))
     redis.execute_command("EXPIRE", key, conn.MDES_REDIS_TTL)
 
+
 def set_redis_data(redis, key, data):
     redis.execute_command("JSON.SET", key, ".data", json.dumps(dict(data)))
+
 
 def publish_errorlog(file_dict, file_seqno, source, read_group, meter_id, read_time, type_cd):
     error_log = lp_config.ErrorLog(
@@ -230,7 +246,7 @@ def check_data(reading_data, fileattr_dict, file_seqno, read_group, rt_count, wa
         )
         warn_cnt += 1
 
-    warn_dur_ts = str(datetime.now() - warn_start_time)
+    warn_dur_ts = (datetime.now() - warn_start_time).microseconds
     reading_data["warn_dur_ts"] = warn_dur_ts
     return reading_data
 
@@ -239,7 +255,7 @@ def combine_maindata(srch_result, reading_data, main_start_time):
     decode_result = decode_redis_nestedlist(srch_result)[2][3]  # $.data的資料
     main_data = json.loads(decode_result)
     reading_data.update(main_data)
-    main_dur_ts = str(datetime.now() - main_start_time)
+    main_dur_ts = (datetime.now() - main_start_time).microseconds
     reading_data["main_dur_ts"] = main_dur_ts
 
 
@@ -351,6 +367,7 @@ def gp_update(query_str, update_value, condition_value):
     cur.close()
     gp_conn.close()
 
+
 def gp_update_v2(table_name, update_values, condition_values):
     gp_conn = psycopg2.connect(
         host=conn.MDES_GP_HOST,
@@ -383,8 +400,6 @@ def gp_update_v2(table_name, update_values, condition_values):
     # 關閉游標和連接
     cur.close()
     gp_conn.close()
-
-
 
 
 def gp_insert(table_name, insert_dict):
@@ -435,7 +450,6 @@ def gp_truncate(table_name):
     gp_conn.close()
 
 
-
 def list_s3object(bucket_name, prefix, read_group):
     client = boto3.client(
         "s3",
@@ -461,17 +475,25 @@ def list_s3object(bucket_name, prefix, read_group):
     # for key in filtered_objects:
     #     print(key)
 
+
 def get_redis(r, key):
     result = r.execute_command("JSON.GET", key.decode("utf-8"), ".")
     return result
+
 
 def get_redis_data(r, key):
     result = r.execute_command("JSON.GET", key.decode("utf-8"), ".data")
     return result
 
 
+def get_payload(meter_reading, flowfile_attr, file_seqno, file_dir_date, header_dict):
+    # ---------------------------------------------------------------------------- #
+    #                                    Format                                    #
+    # ---------------------------------------------------------------------------- #
 
-def get_payload(flowfile_attr, file_seqno, file_dir_date, header_dict, meter_reading, meters):
+    # date format config
+    DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
     # ---------------------------------------------------------------------------- #
     #                               Redis Connection                               #
     # ---------------------------------------------------------------------------- #
@@ -503,12 +525,14 @@ def get_payload(flowfile_attr, file_seqno, file_dir_date, header_dict, meter_rea
 
     # Counter
     columns = {}
+    meters = {}
     rt_count = 0
     warn_cnt = 0
     wait_cnt = 0
     err_cnt = 0
     main_succ_cnt = 0
 
+    parsing_time = datetime.now()
     # ------------------------------ 1.Meter Readings ----------------------------- #
     start_strm_time = str(datetime.now())[0:19]
     match meter_reading["Meter"]["Names"]["NameType"]["name"]:
@@ -523,7 +547,7 @@ def get_payload(flowfile_attr, file_seqno, file_dir_date, header_dict, meter_rea
     for interval_block in meter_reading["IntervalBlocks"]:
         read_time = interval_block["IntervalReadings"]["timeStamp"]
         if read_time != None:
-            read_time = read_time[0:19].replace("T", " ")
+            read_time = datetime.strptime(read_time, "%Y-%m-%dT%H:%M:%S.%f%z").strftime(DATE_FORMAT)
         # ------------------------- 臨時程式ID號碼 (TOU_id) 處理台達程式 ------------------------- #
         match interval_block["ReadingType"]["@ref"]:
             case "0.0.0.0.0.2.167.0.0.0.0.0.0.0.0.0.0.0":
@@ -566,9 +590,7 @@ def get_payload(flowfile_attr, file_seqno, file_dir_date, header_dict, meter_rea
             if header_dict["source"] != "HES-TMAP20210525":
                 match reading_quality["ReadingQualityType"]["@ref"]:
                     case "5.4.260":
-                        rec_no = reading_quality[
-                            "comment"
-                        ]  # 依據Reading Quality判斷是否為rec_no或者讀表狀態
+                        rec_no = reading_quality["comment"]  # 依據Reading Quality判斷是否為rec_no或者讀表狀態
                     case "1.5.257":
                         publish_errorlog(
                             flowfile_attr,
@@ -589,9 +611,7 @@ def get_payload(flowfile_attr, file_seqno, file_dir_date, header_dict, meter_rea
             else:
                 match reading_quality["ReadingQualityType"]["@ref"]:
                     case "5.4.260":
-                        comment = reading_quality[
-                            "comment"
-                        ]  # 依據Reading Quality判斷是否為rec_no或者讀表狀態
+                        comment = reading_quality["comment"]  # 依據Reading Quality判斷是否為rec_no或者讀表狀態
                     case "1.5.257":
                         publish_errorlog(
                             flowfile_attr,
@@ -620,6 +640,7 @@ def get_payload(flowfile_attr, file_seqno, file_dir_date, header_dict, meter_rea
             del_kvarh_lead = columns["DEL_KVARH_LEAD"] if "DEL_KVARH_LEAD" in columns else None
             rec_kvarh_lag = columns["REC_KVARH_LAG"] if "REC_KVARH_LAG" in columns else None
             rec_kvarh_lead = columns["REC_KVARH_LEAD"] if "REC_KVARH_LEAD" in columns else None
+    print("parsing time: ", datetime.now() - parsing_time)
     if header_dict["source"] != "HES-TMAP20210525":
         lp_raw_temp = {
             "source": header_dict["source"],
@@ -647,6 +668,8 @@ def get_payload(flowfile_attr, file_seqno, file_dir_date, header_dict, meter_rea
             "rec_time": flowfile_attr["rec_time"],
             "file_path": flowfile_attr["file_path"],
             "file_size": flowfile_attr["file_size"],
+            "file_batch_no": flowfile_attr["file_batch_no"],
+            "batch_mk": flowfile_attr["batch_mk"],
             "file_seqno": file_seqno,
             "msg_id": header_dict["msg_id"],
             "corr_id": header_dict["corr_id"],
@@ -664,7 +687,7 @@ def get_payload(flowfile_attr, file_seqno, file_dir_date, header_dict, meter_rea
             "rt_count": rt_count,
             "auth_key": "",
             "main_update_time": "",
-            "dw_update_time": ""
+            "dw_update_time": "",
         }
         lp_raw_temp = check_data(
             lp_raw_temp, flowfile_attr, file_seqno, header_dict["read_group"], rt_count, warn_cnt
@@ -697,6 +720,8 @@ def get_payload(flowfile_attr, file_seqno, file_dir_date, header_dict, meter_rea
             "rec_time": flowfile_attr["rec_time"],
             "file_path": flowfile_attr["file_path"],
             "file_size": flowfile_attr["file_size"],
+            "file_batch_no": flowfile_attr["file_batch_no"],
+            "batch_mk": flowfile_attr["batch_mk"],
             "file_seqno": file_seqno,
             "msg_id": header_dict["msg_id"],
             "corr_id": header_dict["corr_id"],
@@ -714,7 +739,7 @@ def get_payload(flowfile_attr, file_seqno, file_dir_date, header_dict, meter_rea
             "rt_count": rt_count,
             "auth_key": "",
             "main_update_time": "",
-            "dw_update_time": ""
+            "dw_update_time": "",
         }
         lpi_raw_temp, warn_cnt = check_data(
             lpi_raw_temp, flowfile_attr, file_seqno, header_dict["read_group"], rt_count, warn_cnt
@@ -768,7 +793,7 @@ def get_payload(flowfile_attr, file_seqno, file_dir_date, header_dict, meter_rea
                     "E23003",
                 )
                 warn_cnt += 1
-            main_dur_ts = str(datetime.now() - main_start_time)
+            main_dur_ts = (datetime.now() - main_start_time).microseconds
             read_time_int = int(datetime.strptime(read_time, "%Y-%m-%d %H:%M:%S").timestamp())
 
             if header_dict["source"] != "HES-TMAP20210525":
@@ -791,17 +816,18 @@ def get_payload(flowfile_attr, file_seqno, file_dir_date, header_dict, meter_rea
                 )
     else:
         if header_dict["source"] != "HES-TMAP20210525":
-            publish_kafka(
+            publish_kafka_v2(
                 lp_raw_temp,
                 "mdes.stream.lp-raw",
                 hash_func(meter_id),
             )
         else:
-            publish_kafka(
+            publish_kafka_v2(
                 lpi_raw_temp,
                 "mdes.stream.lpi-raw",
                 hash_func(meter_id),
             )
+    # kafka_flush()
     return meters, warn_cnt, err_cnt, wait_cnt, main_succ_cnt
 
 
@@ -825,6 +851,41 @@ def count_total(input_array):
         err_cnt_total += err_cnt
         wait_cnt_total += wait_cnt
         main_succ_cnt_total += main_succ_cnt
+
+    print("Meters Count:")
+    for meter, count in meters_count.items():
+        total_meter_cnt += count
+        print(f"{meter}: {count}")
+
+    print("Total Counts:")
+    print(f"meter_cnt_total: {total_meter_cnt}")
+    print(f"warn_cnt_total: {warn_cnt_total}")
+    print(f"err_cnt_total: {err_cnt_total}")
+    print(f"wait_cnt_total: {wait_cnt_total}")
+    print(f"main_succ_cnt_total: {main_succ_cnt_total}")
+
+    return total_meter_cnt, warn_cnt_total, err_cnt_total, wait_cnt_total, main_succ_cnt_total
+
+
+def count_total_v2(input_array):
+    meters_count = {}  # 用於統計不同meters 的數量
+    total_meter_cnt = 0
+
+    warn_cnt_total = 0
+    err_cnt_total = 0
+    wait_cnt_total = 0
+    main_succ_cnt_total = 0
+
+    meters, warn_cnt, err_cnt, wait_cnt, main_succ_cnt = input_array
+
+    # 統計不同meters 的數量
+    for meter, count in meters.items():
+        meters_count[meter] = meters_count.get(meter, 0) + count
+
+    warn_cnt_total += warn_cnt
+    err_cnt_total += err_cnt
+    wait_cnt_total += wait_cnt
+    main_succ_cnt_total += main_succ_cnt
 
     print("Meters Count:")
     for meter, count in meters_count.items():

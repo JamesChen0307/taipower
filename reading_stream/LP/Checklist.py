@@ -223,11 +223,14 @@ if __name__ == "__main__":
                 """.format(
                     ref_batch_no=batch_no_tmp
                 )
-                ref_seqno = func.gp_search(srch_str[0])
+                ref_seqno = func.gp_search(srch_str)[0]
                 ref_batch_no = batch_no_tmp + str(ref_seqno)
                 ref_dict = {
-                    "ref_seqno": ref_seqno,
                     "ref_batch_no": ref_batch_no,
+                    "ref_seqno": ref_seqno,
+                    "read_group": read_group,
+                    "source": source,
+                    "meter_id": meter_id,
                     "start_read_time": read_time,
                     "end_read_time": read_time,
                     "start_read_date": datetime.strptime(read_time, DATE_FORMAT).strftime(
@@ -236,6 +239,7 @@ if __name__ == "__main__":
                     "end_read_date": datetime.strptime(read_time, DATE_FORMAT).strftime("%Y-%m-%d"),
                     "req_strm_cnt": 1,
                     "proc_type": 0,
+                    "expiry_date": datetime.now().date() + timedelta(days=10),
                     "crtd_time": datetime.now().strftime(DATE_FORMAT),
                 }
 
