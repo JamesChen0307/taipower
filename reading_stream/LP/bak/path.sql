@@ -72,5 +72,19 @@ select
     '${meter_id}',
     '${read_time}',
     $ { version },
-    '$ { source :equals('HES-TMAP20210525') :ifElse('lpi', 'lpr') }'
+    '$ { source :equals(' HES - TMAP20210525 ') :ifElse(' lpi ', ' lpr ') }'
   );
+
+SELECT
+  file_batch_no,
+  start_date
+FROM
+  ami_dg.bucket_ctrl_log
+WHERE
+  proc_type = -2
+  AND enable_mk = 1
+  AND read_group = 'LP'
+ORDER BY
+  crtd_time asc
+LIMIT
+  1;

@@ -17,6 +17,7 @@ import logging
 import os
 import sys
 from os.path import dirname
+from datetime import datetime
 
 CURRENT_DIR = dirname(__file__)
 sys.path.append(os.path.abspath(CURRENT_DIR + "/../"))
@@ -42,9 +43,11 @@ if __name__ == "__main__":
         # ---------------------------------------------------------------------------- #
 
         # 讀取Flowfile內容
-        flowfile_json = sys.stdin.buffer.read().decode('utf-8')
+        flowfile_json = sys.stdin.buffer.read().decode("utf-8")
         flowfile_data = json.loads(flowfile_json)
         todo = flowfile_data[0]["todo"]
+
+        print(todo)
 
         if todo < 1:
             exitcode = 1
@@ -91,7 +94,7 @@ if __name__ == "__main__":
                         SELECT
                             file_batch_no,
                             bucket_nm,
-                            path_nm,
+                            -- path_nm,
                             read_group,
                             TO_CHAR(DATE_TRUNC('month', dt), 'YYYY-MM-DD') AS file_dir_ym,
                             TO_CHAR(dt, 'YYYY-MM-DD') AS file_dir_date,
@@ -135,6 +138,7 @@ if __name__ == "__main__":
                         ) b;
                     """
                 )
+                print(result_pathobj)
                 # 更新該筆訂單bucket_ctrl_log.proc_type=1表示處理中
                 func.gp_update(
                     "UPDATE ami_dg.bucket_ctrl_log SET proc_type = %s WHERE file_batch_no = %s",
@@ -143,6 +147,7 @@ if __name__ == "__main__":
                 )
 
                 for item in result_pathobj:
+                    print(item)
                     result_dict = dict(
                         zip(
                             [
@@ -152,18 +157,20 @@ if __name__ == "__main__":
                                 "file_dir_ym",
                                 "file_dir_date",
                                 "file_path",
+                                "batch_mk",
                                 "file_cnt",
                                 "proc_cnt",
-                                "batch_mk",
                                 "proc_type",
                                 "crtd_time",
-                                "log_start_time",
-                                "log_upd_time",
-                                "log_end_time",
                             ],
                             item,
                         )
                     )
+                    print(result_dict)
+                    result_dict["file_cnt"] = 0
+                    result_dict["proc_cnt"] = 0
+                    result_dict["proc_type"] = 0
+                    result_dict["crtd_time"] = datetime.now()
                     try:
                         func.gp_insert("ami_dg.path_batch_log", result_dict)
                     except Exception as e:
@@ -172,6 +179,7 @@ if __name__ == "__main__":
                             4,
                             file_batch_no,
                         )
+                        print(e)
                         exitcode = 1
                         sys.exit(exitcode)
 

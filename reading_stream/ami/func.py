@@ -100,7 +100,13 @@ def fix_W20006(v):
 def publish_kafka(input_data, topic, partition_id: Optional[int] = None):
     p = Producer({"bootstrap.servers": conn.MDES_KAFKA_URL})
     data = json.dumps(input_data)
-    p.produce(topic, value=data.encode("utf-8"), partition=partition_id)
+    if partition_id is not None:
+        p.produce(topic, value=data.encode("utf-8"), partition=partition_id)
+    else:
+        p.produce(topic, value=data.encode("utf-8"))
+    p.flush()
+    p.poll(0)
+
 
 
 def publish_kafka_v2(input_data, topic, partition_id: Optional[int] = None):

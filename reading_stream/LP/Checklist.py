@@ -171,15 +171,17 @@ if __name__ == "__main__":
 
             # 查詢結果有尚未處理(proc_type=0)且相同meter_id的訂單
             # 以上述結果之ref_batch_no更新該筆訂單之start_read_time、end_read_time、req_strm_cnt
+            # check_result = [('202306210207051', 'LP', 'HES-CHT20190919', 'WT20004949', datetime.datetime(2022, 11, 17, 23, 0), datetime.datetime(2022, 11, 17, 23, 0), datetime.datetime(2023, 7, 1, 0, 0), 0, 1)]
+
             if check_result:
-                ref_batch_no = check_result["ref_batch_no"]
-                if check_result["start_read_time"] > read_time:
+                ref_batch_no = check_result[0][0]
+                if check_result[0][4] > datetime.strptime(read_time, DATE_FORMAT):
                     func.gp_update(
                         "UPDATE ami_dg.data_hist_ref_list SET start_read_time = %s WHERE ref_batch_no = %s",
                         read_time,
                         ref_batch_no,
                     )
-                if check_result["end_read_time"] < read_time:
+                if check_result[0][5] < datetime.strptime(read_time, DATE_FORMAT):
                     func.gp_update(
                         "UPDATE ami_dg.data_hist_ref_list SET end_read_time = %s WHERE ref_batch_no = %s",
                         read_time,
@@ -187,7 +189,7 @@ if __name__ == "__main__":
                     )
                 func.gp_update(
                     "UPDATE ami_dg.data_hist_ref_list SET req_strm_cnt = %s WHERE ref_batch_no = %s",
-                    check_result["req_strm_cnt"] + 1,
+                    check_result[0][8] + 1,
                     ref_batch_no,
                 )
 
@@ -198,10 +200,15 @@ if __name__ == "__main__":
                     reflog_key,
                     "$.data[?(@.read_time_int=={0})]".format(read_time_int),
                 )
-                if reflog_result:
-                    redis_conn.execute_command(
-                        "JSON.SET", reflog_key, ".data", json.dumps(flowfile_data)
-                    )
+                print(reflog_key)
+                if reflog_result is None:
+                    reflog_data = {
+                        "meter_id": meter_id,
+                        "ref_batch_no": ref_batch_no,
+                        "data": [flowfile_data],
+                    }
+                    print(reflog_data)
+                    redis_conn.execute_command("JSON.SET", reflog_key, ".", json.dumps(reflog_data))
                 else:
                     redis_conn.execute_command(
                         "JSON.ARRAPPEND", reflog_key, ".data", json.dumps(flowfile_data)
@@ -223,8 +230,10 @@ if __name__ == "__main__":
                 """.format(
                     ref_batch_no=batch_no_tmp
                 )
-                ref_seqno = func.gp_search(srch_str)[0]
+
+                ref_seqno = func.gp_search(srch_str)[0][0]  # [(1,)]
                 ref_batch_no = batch_no_tmp + str(ref_seqno)
+
                 ref_dict = {
                     "ref_batch_no": ref_batch_no,
                     "ref_seqno": ref_seqno,
@@ -247,6 +256,7 @@ if __name__ == "__main__":
                 func.gp_insert("ami_dg.data_hist_ref_list", ref_dict)
 
                 reflog_key = "lp_hist_reflog:" + meter_id + "_" + ref_batch_no
+
                 reflog_result = redis_conn.execute_command(
                     "JSON.GET",
                     reflog_key,
@@ -254,10 +264,14 @@ if __name__ == "__main__":
                 )
 
                 # 保留當筆串流值至Redis待處理資料載入紀錄lp_hist_reflog:{key}
-                if reflog_result:
-                    redis_conn.execute_command(
-                        "JSON.SET", reflog_key, ".data", json.dumps(flowfile_data)
-                    )
+                if reflog_result is None:
+                    reflog_data = {
+                        "meter_id": meter_id,
+                        "ref_batch_no": ref_batch_no,
+                        "data": [flowfile_data],
+                    }
+
+                    redis_conn.execute_command("JSON.SET", reflog_key, ".", json.dumps(reflog_data))
                 else:
                     redis_conn.execute_command(
                         "JSON.ARRAPPEND", reflog_key, ".data", json.dumps(flowfile_data)
